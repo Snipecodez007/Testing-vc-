@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/services/supabase';
-import { useAppStore } from './useAppStore';
 
 interface AuthState {
   user: User | null;
@@ -13,6 +12,7 @@ interface AuthState {
   initialize: () => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   clearError: () => void;
 }
@@ -36,17 +36,10 @@ export const useAuthStore = create<AuthState>((set) => ({
       user: data.session?.user ?? null,
       loading: false,
     });
-    // Pull cloud My List / Watch History into local state for the restored session
-    if (data.session?.user) {
-      useAppStore.getState().syncFromCloud();
-    }
 
     // Listen for auth changes
     supabase.auth.onAuthStateChange((_event, session) => {
       set({ session, user: session?.user ?? null });
-      if (session?.user) {
-        useAppStore.getState().syncFromCloud();
-      }
     });
   },
 
@@ -79,6 +72,24 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ error: error.message, loading: false });
     } else {
       set({ loading: false });
+    }
+  },
+
+  signInWithGoogle: async () => {
+    if (!isSupabaseConfigured) {
+      set({ error: 'Auth is not configured. Add Supabase env vars.' });
+      return;
+    }
+    set({ loading: true, error: null });
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+    // On success the browser redirects to Google, so we only reach here on failure.
+    if (error) {
+      set({ error: error.message, loading: false });
     }
   },
 

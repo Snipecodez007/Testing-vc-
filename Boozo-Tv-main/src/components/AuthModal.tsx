@@ -17,7 +17,7 @@ export default function AuthModal({ onClose, defaultTab = 'login' }: AuthModalPr
   const [showPw, setShowPw] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
-  const { signIn, signUp, loading, error, clearError, user } = useAuthStore();
+  const { signIn, signUp, signInWithGoogle, loading, error, clearError, user } = useAuthStore();
   const modalRef = useRef<HTMLDivElement>(null);
 
   // Close on successful auth
@@ -139,8 +139,33 @@ export default function AuthModal({ onClose, defaultTab = 'login' }: AuthModalPr
           ))}
         </div>
 
+        {/* Google Sign In */}
+        <div className="px-6 sm:px-8 pt-5 sm:pt-6">
+          <button
+            type="button"
+            onClick={() => signInWithGoogle()}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2.5 py-2.5 bg-white hover:bg-white/90 text-[#1a1a1a] font-semibold text-sm rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98]"
+            id="auth-google"
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.95v2.33A9 9 0 0 0 9 18z"/>
+              <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.16.28-1.7V4.97H.95A9 9 0 0 0 0 9c0 1.45.35 2.83.95 4.03l3-2.33z"/>
+              <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .95 4.97l3 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
+            </svg>
+            Continue with Google
+          </button>
+
+          <div className="flex items-center gap-3 my-4 sm:my-5">
+            <div className="h-px flex-1 bg-white/10" />
+            <span className="text-xf-subtle text-xs">or</span>
+            <div className="h-px flex-1 bg-white/10" />
+          </div>
+        </div>
+
         {/* Form */}
-        <form onSubmit={handleSubmit} className="px-6 sm:px-8 py-5 sm:py-6 space-y-3.5 sm:space-y-4">
+        <form onSubmit={handleSubmit} className="px-6 sm:px-8 pb-5 sm:pb-6 space-y-3.5 sm:space-y-4">
           {tab === 'signup' && (
             <div className="relative">
               <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xf-subtle" />
