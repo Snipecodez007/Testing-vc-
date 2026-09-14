@@ -1,0 +1,261 @@
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import PageBackground from '@/components/PageBackground';
+import Hero from '@/components/Hero';
+import MovieRow from '@/components/MovieRow';
+import ProviderRow from '@/components/ProviderRow';
+import ContinueWatching from '@/components/ContinueWatching';
+import Footer from '@/components/Footer';
+import LoadingSkeleton from '@/components/LoadingSkeleton';
+import { useTMDB } from '@/hooks/useTMDB';
+import { useAppStore } from '@/store/useAppStore';
+import {
+  getTrending,
+  getNewReleases,
+  getTopRated,
+  getPresetPage,
+} from '@/services/tmdb';
+import { homeRowPresets, type RowPreset } from '@/data/rowPresets';
+import type { Movie } from '@/types/movie';
+
+const pageVariants = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1, transition: { duration: 0.4 } },
+  exit: { opacity: 0, transition: { duration: 0.2 } },
+};
+
+const GENRE_TO_ID: Record<string, number> = {
+  Action: 28, Comedy: 35, Drama: 18, Thriller: 53, 'Sci-Fi': 878,
+  Horror: 27, Romance: 10749, Crime: 80, Mystery: 9648, Adventure: 12,
+  Fantasy: 14, Animation: 16, Family: 10751, Music: 10402, History: 36,
+  War: 10752, Western: 37, Documentary: 99,
+};
+
+// Compute 60-days-ago ISO date string once per render cycle
+function recent60DaysAgo(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 60);
+  return d.toISOString().split('T')[0]; // YYYY-MM-DD
+}
+
+// Resolve the RECENT_60 placeholder in preset minReleaseDate
+function resolvePreset(preset: RowPreset): RowPreset {
+  if (preset.minReleaseDate === 'RECENT_60') {
+    return { ...preset, minReleaseDate: recent60DaysAgo() };
+  }
+  return preset;
+}
+
+async function fetchAboveTheFoldData() {
+  const [trending, topRatedMovies, topRatedTV] = await Promise.all([
+    getTrending('day'),
+    getTopRated('movie', 1),
+    getTopRated('tv', 1),
+  ]);
+  return {
+    trending,
+    topRatedMovies: topRatedMovies.movies.slice(0, 10),
+    topRatedTV: topRatedTV.movies.slice(0, 10),
+  };
+}
+
+export default function Home() {
+  const { data, loading, error } = useTMDB(fetchAboveTheFoldData);
+  const { seedDynamicNotifications, profile, myList, continueWatching, checkReminderReleases } = useAppStore();
+  const [activeHeroMovie, setActiveHeroMovie] = useState<Movie | null>(null);
+
+  // Seed dynamic "Now Available" notifications once trending data loads & set initial activeHeroMovie
+  useEffect(() => {
+    if (data?.trending && data.trending.length > 0) {
+      seedDynamicNotifications(data.trending);
+      setActiveHeroMovie((prev) => prev || data.trending[0]);
+    }
+  }, [data?.trending, seedDynamicNotifications]);
+
+  // Check Coming Soon reminders against today's date once on load
+  useEffect(() => {
+    checkReminderReleases();
+  }, [checkReminderReleases]);
+
+  // ── "Your Next Watch" heuristic: genres from continue-watching history ────────
+  const nextWatchGenreIds = useMemo(() => {
+    const items = Object.values(continueWatching).sort((a, b) => b.lastWatched - a.lastWatched);
+    if (items.length === 0) return [53, 18]; // Fallback to Thriller/Drama
+
+    const mostRecent = items[0];
+    if (mostRecent.movieMeta?.genres && mostRecent.movieMeta.genres.length > 0) {
+      const ids = mostRecent.movieMeta.genres
+        .map(g => GENRE_TO_ID[g])
+        .filter(Boolean) as number[];
+      if (ids.length > 0) return ids.slice(0, 2); // Use top 1-2 genres
+    }
+    
+    return [53, 18]; // Fallback
+  }, [continueWatching]);
+
+  // ── "We Think You'll Love This" heuristic: genres from My List ───────────────
+  const loveThisGenreId = useMemo(() => {
+    if (myList.length === 0) return null;
+    // Pick the most frequent genre across My List items
+    const freq: Record<string, number> = {};
+    for (const m of myList) {
+      for (const g of m.genres) {
+        freq[g] = (freq[g] ?? 0) + 1;
+      }
+    }
+    const topGenre = Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0];
+    return topGenre ? (GENRE_TO_ID[topGenre] ?? null) : null;
+  }, [myList]);
+
+  // ── Preset fetchMore factories ─────────────────────────────────────────────────
+  const makeFetchMore = useCallback(
+    (preset: RowPreset) => async (page: number): Promise<Movie[]> => {
+      const resolved = resolvePreset(preset);
+      const result = await getPresetPage(resolved, page);
+      return result.movies;
+    },
+    []
+  );
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-xf-bg flex items-center justify-center">
+        <p className="text-xf-red">Failed to load content. Please try again.</p>
+      </div>
+    );
+  }
+
+  if (loading || !data) {
+    return (
+      <div className="pt-20 bg-xf-bg min-h-screen">
+        <LoadingSkeleton variant="hero" />
+        <div className="mt-8">
+          <LoadingSkeleton variant="row" count={4} />
+        </div>
+      </div>
+    );
+  }
+
+  const { trending, topRatedMovies, topRatedTV } = data;
+  const heroMovies = trending.slice(0, 10);
+  const currentMovie = activeHeroMovie || heroMovies[0];
+
+  return (
+    <motion.div
+      variants={pageVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      className="min-h-screen bg-[#08080a] relative overflow-x-hidden"
+    >
+      {/* Cinejoy-style dynamic page background */}
+      <PageBackground movie={currentMovie} />
+
+      {/* ── HERO ──────────────────────────────────────────────────────────────── */}
+      <Hero movies={heroMovies} onActiveMovieChange={setActiveHeroMovie} />
+
+      {/* ── Content Rows ── mt-16 md:mt-24 gives gap between hero & first row ── */}
+      <div className="mt-16 md:mt-24 relative z-10 flex flex-col gap-10 md:gap-12 pb-16">
+
+        {/* ── Browse by Provider Row ────────────────────────────────────────── */}
+        <ProviderRow />
+
+        {/* ── 1. TV Action & Adventure (preset row) ─────────────────────────── */}
+        <PresetRow preset={homeRowPresets[0]} makeFetchMore={makeFetchMore} />
+
+        {/* ── 2. Continue Watching for {username} ───────────────────────────── */}
+        <ContinueWatching />
+
+        {/* ── 3. Your Next Watch (heuristic based on recently watched) ──────── */}
+        <PresetRow
+          preset={{ title: `Your Next Watch`, mediaType: 'movie', genreIds: nextWatchGenreIds }}
+          makeFetchMore={makeFetchMore}
+        />
+
+        {/* ── 4. Top 10 Movies Globally ─────────────────────────────────────── */}
+        <MovieRow
+          title="Top 10 Movies Globally"
+          movies={topRatedMovies}
+          variant="topTen"
+        />
+
+        {/* ── 5. My List (skip when empty) ──────────────────────────────────── */}
+        {myList.length > 0 && (
+          <MovieRow
+            title={`My List`}
+            movies={myList}
+          />
+        )}
+
+        {/* ── 6. We Think You'll Love This ──────────────────────────────────── */}
+        <PresetRow
+          preset={{
+            title: "We Think You'll Love This",
+            mediaType: 'movie',
+            genreIds: loveThisGenreId ? [loveThisGenreId] : [18, 35],
+            sortBy: 'vote_average.desc',
+          }}
+          makeFetchMore={makeFetchMore}
+        />
+
+        {/* ── 7–21. Preset rows (items 1–21 from homeRowPresets, skipping index 0) */}
+        {homeRowPresets.slice(1).map((preset) => (
+          <PresetRow key={preset.title} preset={preset} makeFetchMore={makeFetchMore} />
+        ))}
+
+        {/* ── Top 10 Shows Globally ─────────────────────────────────────────── */}
+        <MovieRow
+          title="Top 10 Shows Globally"
+          movies={topRatedTV}
+          variant="topTen"
+        />
+
+      </div>
+
+      <Footer />
+    </motion.div>
+  );
+}
+
+// ─── Preset Row sub-component ─────────────────────────────────────────────────
+// Fetches page 1 for a given preset, then passes fetchMore for infinite scroll.
+// Renders nothing if page 1 comes back empty.
+function PresetRow({
+  preset,
+  makeFetchMore,
+}: {
+  preset: RowPreset;
+  makeFetchMore: (preset: RowPreset) => (page: number) => Promise<Movie[]>;
+}) {
+  const resolved = resolvePreset(preset);
+
+  const { data, loading } = useTMDB(
+    () => getPresetPage(resolved, 1),
+    [JSON.stringify(resolved)]
+  );
+
+  const fetchMore = useCallback(
+    (page: number) => makeFetchMore(preset)(page),
+    [preset, makeFetchMore]
+  );
+
+  if (loading) {
+    return (
+      <div className="px-4 sm:px-8 lg:px-12">
+        <div className="h-5 w-52 bg-xf-card skeleton rounded mb-3" />
+        <LoadingSkeleton variant="row" count={1} />
+      </div>
+    );
+  }
+
+  // Skip empty rows entirely
+  if (!data || data.movies.length === 0) return null;
+
+  return (
+    <MovieRow
+      title={preset.title}
+      movies={data.movies}
+      fetchMore={fetchMore}
+    />
+  );
+}
